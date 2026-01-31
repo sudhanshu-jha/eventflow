@@ -1,8 +1,12 @@
 from celery import Celery
 from celery.schedules import crontab
+from celery.signals import worker_process_init, worker_process_shutdown
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Load configuration
 DATABASE_URL = os.environ.get(
@@ -22,6 +26,31 @@ celery_app = Celery(
         'analytics.tasks.aggregations',
     ]
 )
+
+
+# OpenTelemetry initialization for Celery workers
+@worker_process_init.connect(weak=False)
+def init_celery_telemetry(*args, **kwargs):
+    """Initialize OpenTelemetry when Celery worker process starts."""
+    try:
+        from analytics.telemetry import init_telemetry
+        init_telemetry(enable_celery=True)
+        logger.info("OpenTelemetry initialized for Celery worker")
+    except ImportError as e:
+        logger.warning(f"OpenTelemetry packages not installed: {e}")
+    except Exception as e:
+        logger.warning(f"Failed to initialize OpenTelemetry for Celery: {e}")
+
+
+@worker_process_shutdown.connect(weak=False)
+def shutdown_celery_telemetry(*args, **kwargs):
+    """Shutdown OpenTelemetry when Celery worker process stops."""
+    try:
+        from analytics.telemetry import shutdown_telemetry
+        shutdown_telemetry()
+        logger.info("OpenTelemetry shutdown for Celery worker")
+    except Exception as e:
+        logger.warning(f"Failed to shutdown OpenTelemetry for Celery: {e}")
 
 # Celery configuration
 celery_app.conf.update(

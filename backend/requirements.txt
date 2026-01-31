@@ -16,3 +16,25 @@ marshmallow
 zope.sqlalchemy
 transaction
 requests
+
+# OpenTelemetry - Core
+opentelemetry-api>=1.22.0
+opentelemetry-sdk>=1.22.0
+opentelemetry-semantic-conventions>=0.43b0
+
+# OpenTelemetry - Exporters
+opentelemetry-exporter-otlp>=1.22.0
+opentelemetry-exporter-otlp-proto-grpc>=1.22.0
+opentelemetry-exporter-otlp-proto-http>=1.22.0
+
+# OpenTelemetry - Instrumentation
+opentelemetry-instrumentation>=0.43b0
+opentelemetry-instrumentation-wsgi>=0.43b0
+opentelemetry-instrumentation-sqlalchemy>=0.43b0
+opentelemetry-instrumentation-celery>=0.43b0
+opentelemetry-instrumentation-redis>=0.43b0
+opentelemetry-instrumentation-requests>=0.43b0
+opentelemetry-instrumentation-logging>=0.43b0
+
+# gRPC for OTLP exporter
+grpcio>=1.60.0

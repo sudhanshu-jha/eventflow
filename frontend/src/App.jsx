@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './hooks/useAuth'
+import { usePageTracking } from './hooks/useTelemetry'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
@@ -35,6 +36,9 @@ function AppLayout({ children }) {
 }
 
 export default function App() {
+  // Track page views on route changes
+  usePageTracking()
+
   return (
     <Routes>
       <Route path="/login" element={<Login />} />

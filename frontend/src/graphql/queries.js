@@ -70,8 +70,14 @@ export const GET_EVENT_STATS = gql`
       eventsToday
       eventsThisWeek
       uniqueSessions
-      topEvents
-      eventsByType
+      topEvents {
+        name
+        count
+      }
+      eventsByType {
+        type
+        count
+      }
     }
   }
 `

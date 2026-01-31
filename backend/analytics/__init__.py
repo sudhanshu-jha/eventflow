@@ -1,4 +1,6 @@
 import os
+import logging
+import atexit
 from pyramid.config import Configurator
 from sqlalchemy import create_engine, engine_from_config
 from sqlalchemy.orm import sessionmaker
@@ -7,13 +9,23 @@ import zope.sqlalchemy
 
 from .models import Base
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Global engine reference for telemetry
+_engine = None
+
 
 def get_engine(settings, prefix='sqlalchemy.'):
+    global _engine
     # Use DATABASE_URL env var if available (for Docker)
     database_url = os.environ.get('DATABASE_URL')
     if database_url:
-        return create_engine(database_url)
-    return engine_from_config(settings, prefix)
+        _engine = create_engine(database_url)
+    else:
+        _engine = engine_from_config(settings, prefix)
+    return _engine
 
 
 def get_session_factory(engine):
@@ -48,6 +60,27 @@ def includeme(config):
     )
 
 
+def init_opentelemetry(engine=None):
+    """Initialize OpenTelemetry for the application."""
+    try:
+        from .telemetry import init_telemetry, shutdown_telemetry
+        
+        # Initialize telemetry with SQLAlchemy engine
+        init_telemetry(engine=engine, enable_celery=False)
+        
+        # Register shutdown handler
+        atexit.register(shutdown_telemetry)
+        
+        logger.info("OpenTelemetry initialized successfully")
+        return True
+    except ImportError as e:
+        logger.warning(f"OpenTelemetry packages not installed: {e}")
+        return False
+    except Exception as e:
+        logger.warning(f"Failed to initialize OpenTelemetry: {e}")
+        return False
+
+
 def main(global_config, **settings):
     """This function returns a Pyramid WSGI application."""
     with Configurator(settings=settings) as config:
@@ -66,7 +99,22 @@ def main(global_config, **settings):
         # Scan for views
         config.scan('.views')
 
-    return config.make_wsgi_app()
+    # Create the WSGI app
+    app = config.make_wsgi_app()
+    
+    # Initialize OpenTelemetry
+    otel_enabled = init_opentelemetry(engine=_engine)
+    
+    # Wrap with OpenTelemetry middleware if enabled
+    if otel_enabled:
+        try:
+            from .telemetry import get_wsgi_middleware
+            app = get_wsgi_middleware(app)
+            logger.info("WSGI app wrapped with OpenTelemetry middleware")
+        except Exception as e:
+            logger.warning(f"Failed to wrap app with OTEL middleware: {e}")
+    
+    return app
 
 
 def add_cors_headers(event):
@@ -75,9 +123,23 @@ def add_cors_headers(event):
     response = event.response
 
     settings = request.registry.settings
-    origins = settings.get('cors.origins', 'http://localhost:5173')
+    allowed_origins = settings.get('cors.origins', 'http://localhost:5173')
+    
+    # Parse comma-separated origins into a list
+    allowed_origins_list = [origin.strip() for origin in allowed_origins.split(',')]
+    
+    # Get the request origin
+    request_origin = request.headers.get('Origin', '')
+    
+    # Only set the origin if it's in our allowed list
+    if request_origin in allowed_origins_list:
+        response.headers['Access-Control-Allow-Origin'] = request_origin
+    elif allowed_origins_list:
+        # Default to first allowed origin for non-browser requests
+        response.headers['Access-Control-Allow-Origin'] = allowed_origins_list[0]
 
-    response.headers['Access-Control-Allow-Origin'] = origins
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, traceparent, tracestate'
     response.headers['Access-Control-Allow-Credentials'] = 'true'
+    # Expose trace headers for frontend correlation
+    response.headers['Access-Control-Expose-Headers'] = 'traceparent, tracestate'

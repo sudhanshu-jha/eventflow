@@ -57,13 +57,23 @@ class WebhookType(graphene.ObjectType):
     created_at = graphene.DateTime()
 
 
+class TopEventType(graphene.ObjectType):
+    name = graphene.String()
+    count = graphene.Int()
+
+
+class EventByTypeType(graphene.ObjectType):
+    type = graphene.String()
+    count = graphene.Int()
+
+
 class EventStatsType(graphene.ObjectType):
     total_events = graphene.Int()
     events_today = graphene.Int()
     events_this_week = graphene.Int()
     unique_sessions = graphene.Int()
-    top_events = graphene.List(graphene.JSONString)
-    events_by_type = graphene.List(graphene.JSONString)
+    top_events = graphene.List(TopEventType)
+    events_by_type = graphene.List(EventByTypeType)
 
 
 class EventsConnection(graphene.ObjectType):
@@ -206,7 +216,7 @@ class Query(graphene.ObjectType):
             Event.event_name
         ).order_by(func.count(Event.id).desc()).limit(10).all()
 
-        top_events = [{'name': name, 'count': count} for name, count in top_events_result]
+        top_events = [TopEventType(name=name, count=count) for name, count in top_events_result]
 
         # Events by type
         events_by_type_result = dbsession.query(
@@ -214,7 +224,7 @@ class Query(graphene.ObjectType):
             func.count(Event.id).label('count')
         ).filter(Event.user_id == user.id).group_by(Event.event_type).all()
 
-        events_by_type = [{'type': etype, 'count': count} for etype, count in events_by_type_result]
+        events_by_type = [EventByTypeType(type=etype or 'unknown', count=count) for etype, count in events_by_type_result]
 
         return EventStatsType(
             total_events=total_events,
