@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-beat
+  namespace: eventflow
+  labels:
+    app: celery-beat
+    app.kubernetes.io/name: celery-beat
+    app.kubernetes.io/component: scheduler
+spec:
+  replicas: 1  # Only one beat instance should run
+  selector:
+    matchLabels:
+      app: celery-beat
+  strategy:
+    type: Recreate  # Ensure only one instance at a time
+  template:
+    metadata:
+      labels:
+        app: celery-beat
+        app.kubernetes.io/name: celery-beat
+        app.kubernetes.io/component: scheduler
+    spec:
+      containers:
+        - name: celery-beat
+          image: eventflow-backend:latest
+          imagePullPolicy: Always
+          command:
+            - celery
+            - -A
+            - analytics.tasks.celery_app
+            - beat
+            - --loglevel=info
+          envFrom:
+            - configMapRef:
+                name: eventflow-config
+            - secretRef:
+                name: eventflow-secrets
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: "eventflow-celery-beat"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.namespace=eventflow,deployment.environment=production"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+      terminationGracePeriodSeconds: 60

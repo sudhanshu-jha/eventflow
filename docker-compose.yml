@@ -1,4 +1,19 @@
 services:
+  # Nginx Load Balancer
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+      - "8080:8080"  # Metrics
+    depends_on:
+      - backend
+      - frontend
+    restart: unless-stopped
+    networks:
+      - eventflow-network
+
   # OpenTelemetry Collector
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.91.0
@@ -12,6 +27,8 @@ services:
       - "13133:13133" # Health check
       - "55679:55679" # zPages
     restart: unless-stopped
+    networks:
+      - eventflow-network
 
   # Jaeger for trace visualization
   jaeger:
@@ -22,6 +39,8 @@ services:
       - "16686:16686" # Jaeger UI
       - "14268:14268" # Jaeger collector HTTP
     restart: unless-stopped
+    networks:
+      - eventflow-network
 
   postgres:
     image: postgres:15-alpine
@@ -30,7 +49,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: analytics
     ports:
-      - "5433:5432"  # External 5433 to avoid conflicts with local PostgreSQL
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -38,11 +57,13 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - eventflow-network
 
   redis:
     image: redis:7-alpine
     ports:
-      - "6380:6379"  # External 6380 to avoid conflicts with local Redis
+      - "6380:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -50,13 +71,17 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - eventflow-network
 
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    ports:
-      - "6543:6543"
+    expose:
+      - "6543"
+    # Note: Port 6543 is accessed via Nginx on port 80
+    # For direct access in dev, use: docker-compose port backend 6543
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/analytics
       - REDIS_URL=redis://redis:6379/0
@@ -85,16 +110,20 @@ services:
              pip install -e . &&
              alembic upgrade head &&
              pserve development.ini --reload"
+    networks:
+      - eventflow-network
+    deploy:
+      replicas: 1  # Scale with: docker-compose up -d --scale backend=3
 
-  celery_worker:
+  # Celery Worker - Events Queue
+  celery_worker_events:
     build:
       context: ./backend
       dockerfile: Dockerfile
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/analytics
       - REDIS_URL=redis://redis:6379/1
-      # OpenTelemetry Configuration
-      - OTEL_SERVICE_NAME=eventflow-celery-worker
+      - OTEL_SERVICE_NAME=eventflow-celery-events
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
       - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
       - OTEL_TRACES_EXPORTER=otlp
@@ -111,8 +140,75 @@ services:
         condition: service_started
     volumes:
       - ./backend:/app
-    command: sh -c "pip install -e . && celery -A analytics.tasks.celery_app worker --loglevel=info -Q events,notifications,reports"
+    command: sh -c "pip install -e . && celery -A analytics.tasks.celery_app worker --loglevel=info -Q events -c 4"
+    networks:
+      - eventflow-network
+    deploy:
+      replicas: 1  # Scale with: docker-compose up -d --scale celery_worker_events=3
 
+  # Celery Worker - Notifications Queue
+  celery_worker_notifications:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/analytics
+      - REDIS_URL=redis://redis:6379/1
+      - OTEL_SERVICE_NAME=eventflow-celery-notifications
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_PYTHON_LOG_CORRELATION=true
+      - OTEL_RESOURCE_ATTRIBUTES=service.namespace=eventflow,deployment.environment=development
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    volumes:
+      - ./backend:/app
+    command: sh -c "pip install -e . && celery -A analytics.tasks.celery_app worker --loglevel=info -Q notifications -c 2"
+    networks:
+      - eventflow-network
+    deploy:
+      replicas: 1
+
+  # Celery Worker - Reports Queue
+  celery_worker_reports:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/analytics
+      - REDIS_URL=redis://redis:6379/1
+      - OTEL_SERVICE_NAME=eventflow-celery-reports
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_PYTHON_LOG_CORRELATION=true
+      - OTEL_RESOURCE_ATTRIBUTES=service.namespace=eventflow,deployment.environment=development
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    volumes:
+      - ./backend:/app
+    command: sh -c "pip install -e . && celery -A analytics.tasks.celery_app worker --loglevel=info -Q reports -c 2"
+    networks:
+      - eventflow-network
+    deploy:
+      replicas: 1
+
+  # Celery Beat Scheduler
   celery_beat:
     build:
       context: ./backend
@@ -120,7 +216,6 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/analytics
       - REDIS_URL=redis://redis:6379/1
-      # OpenTelemetry Configuration
       - OTEL_SERVICE_NAME=eventflow-celery-beat
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
       - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
@@ -139,21 +234,22 @@ services:
     volumes:
       - ./backend:/app
     command: sh -c "pip install -e . && celery -A analytics.tasks.celery_app beat --loglevel=info"
+    networks:
+      - eventflow-network
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    ports:
-      - "5173:5173"
+    expose:
+      - "5173"
+    # Note: Port 5173 is accessed via Nginx on port 80
+    # For direct access in dev, use: docker-compose port frontend 5173
     environment:
       - DOCKER_ENV=true
-      # OpenTelemetry Configuration (passed to Vite)
       - VITE_OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
       - VITE_OTEL_SERVICE_NAME=eventflow-frontend
-      # Backend API URL
       - VITE_API_URL=http://localhost:6543
-      # Allowed hosts
       - VITE_ALLOWED_HOSTS=localhost,sudhanshu.anlytics.dev
     depends_on:
       - backend
@@ -162,6 +258,14 @@ services:
       - ./frontend:/app
       - /app/node_modules
     command: npm run dev -- --host 0.0.0.0
+    networks:
+      - eventflow-network
+    deploy:
+      replicas: 1  # Scale with: docker-compose up -d --scale frontend=2
+
+networks:
+  eventflow-network:
+    driver: bridge
 
 volumes:
   postgres_data:

@@ -1,0 +1,46 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: eventflow
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secrets.yaml
+  # Data layer
+  - postgres/statefulset.yaml
+  - postgres/service.yaml
+  - redis/statefulset.yaml
+  - redis/service.yaml
+  # Backend
+  - backend/deployment.yaml
+  - backend/service.yaml
+  - backend/hpa.yaml
+  # Frontend
+  - frontend/deployment.yaml
+  - frontend/service.yaml
+  - frontend/hpa.yaml
+  # Celery
+  - celery/worker-events-deployment.yaml
+  - celery/worker-notifications-deployment.yaml
+  - celery/worker-reports-deployment.yaml
+  - celery/beat-deployment.yaml
+  # Observability
+  - otel/collector-deployment.yaml
+  - otel/collector-service.yaml
+  - otel/jaeger-deployment.yaml
+  - otel/jaeger-service.yaml
+  # Ingress
+  - ingress.yaml
+
+commonLabels:
+  app.kubernetes.io/part-of: eventflow
+  app.kubernetes.io/managed-by: kustomize
+
+images:
+  - name: eventflow-backend
+    newName: eventflow-backend
+    newTag: latest
+  - name: eventflow-frontend
+    newName: eventflow-frontend
+    newTag: latest

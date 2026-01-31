@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-query
+  namespace: eventflow
+  labels:
+    app: jaeger
+    app.kubernetes.io/name: jaeger
+    app.kubernetes.io/component: observability
+spec:
+  type: ClusterIP
+  ports:
+    - port: 16686
+      targetPort: ui
+      protocol: TCP
+      name: ui
+  selector:
+    app: jaeger
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-collector
+  namespace: eventflow
+  labels:
+    app: jaeger
+    app.kubernetes.io/name: jaeger
+    app.kubernetes.io/component: observability
+spec:
+  type: ClusterIP
+  ports:
+    - port: 14268
+      targetPort: collector-http
+      protocol: TCP
+      name: collector-http
+    - port: 4317
+      targetPort: otlp-grpc
+      protocol: TCP
+      name: otlp-grpc
+  selector:
+    app: jaeger

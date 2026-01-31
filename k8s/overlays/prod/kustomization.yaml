@@ -1,0 +1,55 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: eventflow
+
+resources:
+  - ../../base
+
+commonLabels:
+  environment: production
+
+# Production replicas
+replicas:
+  - name: backend
+    count: 3
+  - name: frontend
+    count: 2
+  - name: celery-worker-events
+    count: 3
+  - name: celery-worker-notifications
+    count: 2
+  - name: celery-worker-reports
+    count: 1
+
+# Production image tags (update these for releases)
+images:
+  - name: eventflow-backend
+    newName: your-registry.com/eventflow-backend
+    newTag: v1.0.0
+  - name: eventflow-frontend
+    newName: your-registry.com/eventflow-frontend
+    newTag: v1.0.0
+
+# Production-specific patches
+patches:
+  # Update OTEL resource attributes for production
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/env
+        value:
+          - name: OTEL_SERVICE_NAME
+            value: "eventflow-backend"
+          - name: OTEL_RESOURCE_ATTRIBUTES
+            value: "service.namespace=eventflow,deployment.environment=production"
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: POD_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+    target:
+      kind: Deployment
+      name: backend

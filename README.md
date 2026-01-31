@@ -26,6 +26,8 @@ This platform simulates an analytics and notification system where user events a
 | Styling | Tailwind CSS |
 | Containerization | Docker Compose |
 | **Observability** | **OpenTelemetry + Jaeger** |
+| **Load Balancer** | **Nginx** |
+| **Orchestration** | **Kubernetes (Kustomize)** |
 
 ## Features
 
@@ -38,13 +40,18 @@ This platform simulates an analytics and notification system where user events a
 - **In-app Notifications**: Real-time notifications in the dashboard
 - **Analytics Dashboard**: Visualize event statistics with charts
 - **OpenTelemetry Observability**: Complete distributed tracing for backend and frontend
+- **Horizontal Scaling**: Nginx load balancer with Docker Compose replicas
+- **Kubernetes Ready**: Production-grade K8s manifests with HPA autoscaling
 
 ## Quick Start
 
 ### Using Docker Compose (Recommended)
 
 ```bash
-# Start all services
+# Start all services (using Makefile)
+make dev
+
+# Or directly with docker-compose
 docker-compose up -d
 
 # View logs
@@ -55,11 +62,10 @@ docker-compose down
 ```
 
 Access the application:
-- **Frontend**: http://localhost:5173
-- **GraphQL Playground**: http://localhost:6543/graphql
-- **API Health**: http://localhost:6543/health
+- **App** (via Nginx): http://localhost
 - **Jaeger UI** (Traces): http://localhost:16686
 - **OTEL Collector Metrics**: http://localhost:8889/metrics
+- **Nginx Metrics**: http://localhost:8080/stub_status
 
 ### Manual Setup
 
@@ -218,9 +224,122 @@ eventflow/
 │   │   ├── context/         # React context
 │   │   └── telemetry.js     # OpenTelemetry browser config
 │   └── package.json
+├── nginx/
+│   ├── nginx.conf              # Load balancer configuration
+│   └── Dockerfile
+├── k8s/
+│   ├── base/                   # Kubernetes base manifests
+│   │   ├── backend/            # Backend Deployment, Service, HPA
+│   │   ├── frontend/           # Frontend Deployment, Service, HPA
+│   │   ├── celery/             # Celery worker deployments
+│   │   ├── postgres/           # PostgreSQL StatefulSet
+│   │   ├── redis/              # Redis StatefulSet
+│   │   ├── otel/               # OTEL Collector & Jaeger
+│   │   └── ingress.yaml        # Ingress with TLS
+│   └── overlays/               # Environment-specific configs
+│       ├── dev/
+│       └── prod/
 ├── otel-collector-config.yaml  # OTEL Collector configuration
-├── docker-compose.yml
+├── docker-compose.yml          # Development compose
+├── docker-compose.prod.yml     # Production overrides
+├── Makefile                    # Scaling & deployment commands
 └── README.md
+```
+
+## Scaling
+
+EventFlow supports horizontal scaling with Docker Compose and Kubernetes.
+
+### Architecture
+
+```
+                    ┌─────────────────────────────────────┐
+                    │           Nginx (Port 80)           │
+                    │         Load Balancer               │
+                    └──────────────┬──────────────────────┘
+                                   │
+           ┌───────────────────────┼───────────────────────┐
+           │                       │                       │
+           ▼                       ▼                       ▼
+    ┌─────────────┐         ┌─────────────┐         ┌─────────────┐
+    │  Backend 1  │         │  Backend 2  │         │  Backend N  │
+    └─────────────┘         └─────────────┘         └─────────────┘
+           │                       │                       │
+           └───────────────────────┼───────────────────────┘
+                                   │
+           ┌───────────────────────┼───────────────────────┐
+           │                       │                       │
+           ▼                       ▼                       ▼
+    ┌─────────────┐         ┌─────────────┐         ┌─────────────┐
+    │   Celery    │         │   Celery    │         │   Celery    │
+    │   Events    │         │Notifications│         │   Reports   │
+    └─────────────┘         └─────────────┘         └─────────────┘
+```
+
+### Docker Compose Scaling
+
+```bash
+# Scale backend to 3 replicas
+make scale-backend N=3
+
+# Scale frontend to 2 replicas
+make scale-frontend N=2
+
+# Scale all Celery workers
+make scale-workers N=3
+
+# Scale specific worker queue
+make scale-events N=5
+make scale-notifications N=3
+
+# Check current scale
+make scale-status
+
+# Production deployment with all replicas
+make prod
+```
+
+### Kubernetes Deployment
+
+```bash
+# Deploy to development environment
+make k8s-dev
+
+# Deploy to production environment
+make k8s-prod
+
+# Check deployment status
+make k8s-status
+
+# Scale backend pods
+make k8s-scale-backend N=5
+
+# Port forward for local access
+make k8s-port-forward
+```
+
+### Default Replicas
+
+| Component | Docker Dev | Docker Prod | K8s Prod | HPA Range |
+|-----------|------------|-------------|----------|-----------|
+| Backend | 1 | 3 | 3 | 3-10 |
+| Frontend | 1 | 2 | 2 | 2-6 |
+| Celery Events | 1 | 3 | 3 | - |
+| Celery Notifications | 1 | 2 | 2 | - |
+| Celery Reports | 1 | 1 | 1 | - |
+
+### Production Deployment
+
+```bash
+# Set environment variables
+export POSTGRES_PASSWORD=secure-password
+export JWT_SECRET=your-jwt-secret
+
+# Deploy with production settings
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+# Or use Makefile
+make prod
 ```
 
 ## OpenTelemetry Observability
@@ -329,12 +448,50 @@ function MyComponent() {
 
 ## Development
 
+### Makefile Commands
+
+```bash
+# Show all available commands
+make help
+
+# Start development environment
+make dev
+
+# View logs
+make logs
+
+# Restart services
+make restart
+
+# Build images
+make build
+
+# Run database migrations
+make migrate
+
+# Create new migration
+make migration MSG="add new table"
+
+# Run tests
+make test
+
+# Open Jaeger UI
+make jaeger
+
+# Check service health
+make health
+```
+
 ### Running Tests
 
 ```bash
 cd backend
 pip install -e ".[testing]"
 pytest
+
+# Or using Docker
+make test
+make test-coverage
 ```
 
 ### Database Migrations
@@ -350,4 +507,8 @@ alembic upgrade head
 
 # Rollback
 alembic downgrade -1
+
+# Or using Docker
+make migrate
+make migration MSG="description"
 ```

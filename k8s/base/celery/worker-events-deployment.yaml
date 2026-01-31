@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker-events
+  namespace: eventflow
+  labels:
+    app: celery-worker
+    queue: events
+    app.kubernetes.io/name: celery-worker-events
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: celery-worker
+      queue: events
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: celery-worker
+        queue: events
+        app.kubernetes.io/name: celery-worker-events
+        app.kubernetes.io/component: worker
+    spec:
+      containers:
+        - name: celery-worker
+          image: eventflow-backend:latest
+          imagePullPolicy: Always
+          command:
+            - celery
+            - -A
+            - analytics.tasks.celery_app
+            - worker
+            - --loglevel=info
+            - -Q
+            - events
+            - -c
+            - "8"
+            - --without-heartbeat
+            - --without-gossip
+            - --without-mingle
+          envFrom:
+            - configMapRef:
+                name: eventflow-config
+            - secretRef:
+                name: eventflow-secrets
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: "eventflow-celery-events"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.namespace=eventflow,deployment.environment=production,celery.queue=events"
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          livenessProbe:
+            exec:
+              command:
+                - celery
+                - -A
+                - analytics.tasks.celery_app
+                - inspect
+                - ping
+                - -d
+                - celery@$HOSTNAME
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+      terminationGracePeriodSeconds: 300
