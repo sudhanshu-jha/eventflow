@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: eventflow-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt && pip install -e .
+    startCommand: bash start.sh
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: eventflow-db
+          property: connectionString
+      - key: REDIS_URL
+        sync: false  # Set manually: your Upstash Redis URL
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGINS
+        value: https://frontend-ruby-psi-63.vercel.app
+      - key: PYTHON_VERSION
+        value: 3.11.0
+
+  - type: worker
+    name: eventflow-worker
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt && pip install -e .
+    startCommand: celery -A analytics.tasks.celery_app worker --loglevel=info -Q events,notifications,reports --concurrency=1
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: eventflow-db
+          property: connectionString
+      - key: REDIS_URL
+        sync: false  # Set manually: your Upstash Redis URL
+
+databases:
+  - name: eventflow-db
+    databaseName: analytics
+    user: analytics
+    plan: free

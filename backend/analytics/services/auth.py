@@ -1,3 +1,4 @@
+import os
 import secrets
 from datetime import datetime, timedelta
 from functools import wraps
@@ -11,7 +12,7 @@ from ..models.user import User
 
 class AuthService:
     def __init__(self, settings):
-        self.secret = settings.get('jwt.secret', 'default-secret-change-me')
+        self.secret = os.environ.get('JWT_SECRET') or settings.get('jwt.secret', 'default-secret-change-me')
         self.algorithm = settings.get('jwt.algorithm', 'HS256')
         self.expiration = int(settings.get('jwt.expiration', 3600))
 

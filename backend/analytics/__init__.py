@@ -123,7 +123,7 @@ def add_cors_headers(event):
     response = event.response
 
     settings = request.registry.settings
-    allowed_origins = settings.get('cors.origins', 'http://localhost:5173')
+    allowed_origins = os.environ.get('CORS_ORIGINS') or settings.get('cors.origins', 'http://localhost:5173')
     
     # Parse comma-separated origins into a list
     allowed_origins_list = [origin.strip() for origin in allowed_origins.split(',')]
