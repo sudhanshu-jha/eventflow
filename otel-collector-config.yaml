@@ -7,12 +7,15 @@ receivers:
         endpoint: 0.0.0.0:4318
         cors:
           allowed_origins:
+            - "http://localhost"
             - "http://localhost:5173"
             - "http://frontend:5173"
             - "https://sudhanshu.anlytics.dev"
             - "http://sudhanshu.anlytics.dev"
           allowed_headers:
-            - "*"
+            - "Content-Type"
+            - "traceparent"
+            - "tracestate"
 
 processors:
   batch:
@@ -31,10 +34,6 @@ processors:
         action: upsert
 
 exporters:
-  # Debug exporter for development
-  debug:
-    verbosity: detailed
-
   # Jaeger exporter for traces
   otlp/jaeger:
     endpoint: jaeger:4317
@@ -60,17 +59,17 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch, resource]
-      exporters: [otlp/jaeger, debug]
-    
+      exporters: [otlp/jaeger]
+
     metrics:
       receivers: [otlp]
       processors: [memory_limiter, batch, resource]
-      exporters: [prometheus, debug]
-    
+      exporters: [prometheus]
+
     logs:
       receivers: [otlp]
       processors: [memory_limiter, batch, resource]
-      exporters: [debug]
+      exporters: []
 
   telemetry:
     logs:

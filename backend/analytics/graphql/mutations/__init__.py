@@ -7,7 +7,7 @@ from ...models.event import Event
 from ...models.notification import Notification
 from ...models.webhook import Webhook
 from ...services.auth import AuthService
-from .auth import Register, Login, RefreshToken
+from .auth import Register, Login, RefreshToken, UpdateProfile, ChangePassword
 from .events import TrackEvent
 from .notifications import MarkNotificationRead, CreateInAppNotification
 
@@ -94,6 +94,7 @@ class UpdateWebhook(graphene.Mutation):
             webhook.is_active = is_active
 
         webhook.updated_at = datetime.utcnow()
+        dbsession.flush()
 
         return UpdateWebhook(
             success=True,
@@ -134,6 +135,7 @@ class DeleteWebhook(graphene.Mutation):
             return DeleteWebhook(success=False, error='Webhook not found')
 
         dbsession.delete(webhook)
+        dbsession.flush()
         return DeleteWebhook(success=True)
 
 
@@ -161,6 +163,7 @@ class RegenerateWebhookSecret(graphene.Mutation):
 
         webhook.secret = secrets.token_hex(32)
         webhook.updated_at = datetime.utcnow()
+        dbsession.flush()
 
         return RegenerateWebhookSecret(success=True, new_secret=webhook.secret)
 
@@ -170,6 +173,8 @@ class Mutation(graphene.ObjectType):
     register = Register.Field()
     login = Login.Field()
     refresh_token = RefreshToken.Field()
+    update_profile = UpdateProfile.Field()
+    change_password = ChangePassword.Field()
 
     # Event mutations
     track_event = TrackEvent.Field()

@@ -9,10 +9,25 @@ from pyramid.httpexceptions import HTTPUnauthorized
 from ..models.user import User
 
 
+_HMAC_ALGORITHMS = {'HS256', 'HS384', 'HS512'}
+_KNOWN_DEFAULTS = {'default-secret-change-me', 'changeme', 'secret', 'jwt-secret'}
+
+
 class AuthService:
     def __init__(self, settings):
-        self.secret = settings.get('jwt.secret', 'default-secret-change-me')
-        self.algorithm = settings.get('jwt.algorithm', 'HS256')
+        secret = settings.get('jwt.secret', '')
+        if not secret or secret in _KNOWN_DEFAULTS or len(secret) < 16:
+            raise ValueError(
+                'jwt.secret must be set to a unique value of at least 16 characters. '
+                'Set the JWT_SECRET environment variable or jwt.secret in your config.'
+            )
+        self.secret = secret
+
+        algorithm = settings.get('jwt.algorithm', 'HS256')
+        if algorithm not in _HMAC_ALGORITHMS:
+            raise ValueError(f'jwt.algorithm must be one of {sorted(_HMAC_ALGORITHMS)}')
+        self.algorithm = algorithm
+
         self.expiration = int(settings.get('jwt.expiration', 3600))
 
     def hash_password(self, password: str) -> str:
@@ -23,6 +38,16 @@ class AuthService:
     def verify_password(self, password: str, hashed: str) -> bool:
         """Verify a password against a hash."""
         return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+
+    def validate_password_strength(self, password: str) -> str | None:
+        """Validate password strength. Returns error message or None if valid."""
+        if len(password) < 8:
+            return 'Password must be at least 8 characters'
+        if not any(c.isupper() for c in password):
+            return 'Password must contain at least one uppercase letter'
+        if not any(c.isdigit() for c in password) and not any(not c.isalnum() for c in password):
+            return 'Password must contain at least one digit or special character'
+        return None
 
     def generate_api_key(self) -> str:
         """Generate a unique API key."""
@@ -117,6 +142,32 @@ def require_auth(view_callable):
         request.current_user = auth_service.get_user_from_request(request)
         return view_callable(request)
     return wrapper
+
+
+class RateLimiter:
+    """Redis-backed sliding window rate limiter."""
+
+    def __init__(self, redis_client, max_attempts: int = 10, window_seconds: int = 900):
+        self.redis = redis_client
+        self.max_attempts = max_attempts
+        self.window_seconds = window_seconds
+
+    def is_allowed(self, key: str) -> bool:
+        """Returns True if request is within rate limit, False if exceeded.
+
+        Uses an atomic Lua script to avoid a race condition between INCR and EXPIRE
+        that could leave the key without a TTL if the process crashes between the two
+        Redis commands.
+        """
+        lua = """
+        local count = redis.call('INCR', KEYS[1])
+        if count == 1 then
+            redis.call('EXPIRE', KEYS[1], ARGV[1])
+        end
+        return count
+        """
+        count = self.redis.eval(lua, 1, key, self.window_seconds)
+        return count <= self.max_attempts
 
 
 def get_auth_service(request):

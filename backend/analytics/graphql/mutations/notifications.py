@@ -41,6 +41,7 @@ class MarkNotificationRead(graphene.Mutation):
 
         notification.is_read = True
         notification.read_at = datetime.utcnow()
+        dbsession.flush()
 
         return MarkNotificationRead(
             success=True,
@@ -79,6 +80,10 @@ class MarkAllNotificationsRead(graphene.Mutation):
             'is_read': True,
             'read_at': now
         })
+        # expire_all() forces the session to re-fetch objects from the DB on next
+        # access, since bulk Query.update() bypasses the ORM identity map.
+        dbsession.flush()
+        dbsession.expire_all()
 
         return MarkAllNotificationsRead(success=True, count=count)
 

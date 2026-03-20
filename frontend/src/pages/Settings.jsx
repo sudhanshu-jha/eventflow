@@ -1,13 +1,16 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation } from '@apollo/client'
 import { GET_WEBHOOKS, GET_ME } from '../graphql/queries'
-import { CREATE_WEBHOOK, UPDATE_WEBHOOK, DELETE_WEBHOOK, REGENERATE_WEBHOOK_SECRET } from '../graphql/mutations'
+import {
+  CREATE_WEBHOOK, UPDATE_WEBHOOK, DELETE_WEBHOOK, REGENERATE_WEBHOOK_SECRET,
+  UPDATE_PROFILE, CHANGE_PASSWORD,
+} from '../graphql/mutations'
 import { format } from 'date-fns'
 
 const EVENT_TYPES = ['page_view', 'click', 'custom', 'form_submit', 'scroll', 'error', '*']
 
 export default function Settings() {
-  const [activeTab, setActiveTab] = useState('api')
+  const [activeTab, setActiveTab] = useState('profile')
 
   return (
     <div className="space-y-6">
@@ -16,6 +19,9 @@ export default function Settings() {
       {/* Tabs */}
       <div className="border-b">
         <nav className="flex gap-8">
+          <TabButton active={activeTab === 'profile'} onClick={() => setActiveTab('profile')}>
+            Profile
+          </TabButton>
           <TabButton active={activeTab === 'api'} onClick={() => setActiveTab('api')}>
             API Key
           </TabButton>
@@ -25,6 +31,7 @@ export default function Settings() {
         </nav>
       </div>
 
+      {activeTab === 'profile' && <ProfileSection />}
       {activeTab === 'api' && <ApiKeySection />}
       {activeTab === 'webhooks' && <WebhooksSection />}
     </div>
@@ -43,6 +50,133 @@ function TabButton({ active, onClick, children }) {
     >
       {children}
     </button>
+  )
+}
+
+function ProfileSection() {
+  const { data, loading, refetch } = useQuery(GET_ME)
+  const [updateProfile, { loading: updateLoading }] = useMutation(UPDATE_PROFILE)
+  const [changePassword, { loading: pwLoading }] = useMutation(CHANGE_PASSWORD)
+
+  const [name, setName] = useState('')
+  const [profileMsg, setProfileMsg] = useState(null)
+  const [pwForm, setPwForm] = useState({ current: '', next: '', confirm: '' })
+  const [pwMsg, setPwMsg] = useState(null)
+
+  const user = data?.me
+
+  // Pre-fill name from fetched user data (useEffect avoids calling setState during render).
+  useEffect(() => {
+    if (user?.name) setName(user.name)
+  }, [user])
+
+  const handleProfileSubmit = async (e) => {
+    e.preventDefault()
+    setProfileMsg(null)
+    const { data: result } = await updateProfile({ variables: { name } })
+    if (result?.updateProfile?.success) {
+      setProfileMsg({ type: 'success', text: 'Profile updated.' })
+      refetch()
+    } else {
+      setProfileMsg({ type: 'error', text: result?.updateProfile?.error || 'Update failed.' })
+    }
+  }
+
+  const handlePasswordSubmit = async (e) => {
+    e.preventDefault()
+    setPwMsg(null)
+    if (pwForm.next !== pwForm.confirm) {
+      setPwMsg({ type: 'error', text: 'New passwords do not match.' })
+      return
+    }
+    const { data: result } = await changePassword({
+      variables: { currentPassword: pwForm.current, newPassword: pwForm.next },
+    })
+    if (result?.changePassword?.success) {
+      setPwMsg({ type: 'success', text: 'Password changed successfully.' })
+      setPwForm({ current: '', next: '', confirm: '' })
+    } else {
+      setPwMsg({ type: 'error', text: result?.changePassword?.error || 'Password change failed.' })
+    }
+  }
+
+  if (loading) {
+    return <div className="card"><p className="text-gray-500">Loading...</p></div>
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Name */}
+      <div className="card">
+        <h2 className="text-lg font-semibold mb-4">Display Name</h2>
+        <form onSubmit={handleProfileSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="input"
+              placeholder="Your name"
+            />
+          </div>
+          {profileMsg && (
+            <p className={`text-sm ${profileMsg.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+              {profileMsg.text}
+            </p>
+          )}
+          <button type="submit" disabled={updateLoading} className="btn-primary">
+            {updateLoading ? 'Saving...' : 'Save Name'}
+          </button>
+        </form>
+      </div>
+
+      {/* Password */}
+      <div className="card">
+        <h2 className="text-lg font-semibold mb-4">Change Password</h2>
+        <form onSubmit={handlePasswordSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Current Password</label>
+            <input
+              type="password"
+              value={pwForm.current}
+              onChange={(e) => setPwForm((p) => ({ ...p, current: e.target.value }))}
+              className="input"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
+            <input
+              type="password"
+              value={pwForm.next}
+              onChange={(e) => setPwForm((p) => ({ ...p, next: e.target.value }))}
+              className="input"
+              required
+              placeholder="Min 8 chars, 1 uppercase, 1 digit or special"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Confirm New Password</label>
+            <input
+              type="password"
+              value={pwForm.confirm}
+              onChange={(e) => setPwForm((p) => ({ ...p, confirm: e.target.value }))}
+              className="input"
+              required
+            />
+          </div>
+          {pwMsg && (
+            <p className={`text-sm ${pwMsg.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+              {pwMsg.text}
+            </p>
+          )}
+          <button type="submit" disabled={pwLoading} className="btn-primary">
+            {pwLoading ? 'Saving...' : 'Change Password'}
+          </button>
+        </form>
+      </div>
+    </div>
   )
 }
 

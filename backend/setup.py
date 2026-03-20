@@ -22,7 +22,10 @@ requires = [
 testing_requires = [
     'pytest',
     'pytest-cov',
+    'pytest-mock',
     'webtest',
+    'factory_boy',
+    'zope.sqlalchemy',
 ]
 
 setup(

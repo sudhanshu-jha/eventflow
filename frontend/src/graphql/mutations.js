@@ -89,20 +89,6 @@ export const TRACK_EVENT = gql`
   }
 `
 
-export const MARK_NOTIFICATION_READ = gql`
-  mutation MarkNotificationRead($id: ID!) {
-    markNotificationRead(id: $id) {
-      success
-      notification {
-        id
-        isRead
-        readAt
-      }
-      error
-    }
-  }
-`
-
 export const CREATE_WEBHOOK = gql`
   mutation CreateWebhook($name: String!, $url: String!, $events: [String]!) {
     createWebhook(name: $name, url: $url, events: $events) {
@@ -157,6 +143,29 @@ export const REGENERATE_WEBHOOK_SECRET = gql`
     regenerateWebhookSecret(id: $id) {
       success
       newSecret
+      error
+    }
+  }
+`
+
+export const UPDATE_PROFILE = gql`
+  mutation UpdateProfile($name: String) {
+    updateProfile(name: $name) {
+      success
+      user {
+        id
+        name
+        email
+      }
+      error
+    }
+  }
+`
+
+export const CHANGE_PASSWORD = gql`
+  mutation ChangePassword($currentPassword: String!, $newPassword: String!) {
+    changePassword(currentPassword: $currentPassword, newPassword: $newPassword) {
+      success
       error
     }
   }

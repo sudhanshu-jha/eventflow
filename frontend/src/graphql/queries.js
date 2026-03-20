@@ -47,22 +47,6 @@ export const GET_EVENTS = gql`
   }
 `
 
-export const GET_EVENT = gql`
-  query GetEvent($id: ID!) {
-    event(id: $id) {
-      id
-      eventType
-      eventName
-      properties
-      sessionId
-      url
-      referrer
-      timestamp
-      isProcessed
-    }
-  }
-`
-
 export const GET_EVENT_STATS = gql`
   query GetEventStats {
     eventStats {
@@ -79,34 +63,6 @@ export const GET_EVENT_STATS = gql`
         count
       }
     }
-  }
-`
-
-export const GET_NOTIFICATIONS = gql`
-  query GetNotifications(
-    $status: String
-    $notificationType: String
-    $unreadOnly: Boolean
-    $limit: Int
-  ) {
-    notifications(
-      status: $status
-      notificationType: $notificationType
-      unreadOnly: $unreadOnly
-      limit: $limit
-    ) {
-      id
-      notificationType
-      title
-      content
-      extraData
-      status
-      isRead
-      createdAt
-      sentAt
-      readAt
-    }
-    unreadNotificationCount
   }
 `
 
@@ -127,19 +83,3 @@ export const GET_WEBHOOKS = gql`
   }
 `
 
-export const GET_WEBHOOK = gql`
-  query GetWebhook($id: ID!) {
-    webhook(id: $id) {
-      id
-      name
-      url
-      secret
-      events
-      isActive
-      lastTriggeredAt
-      successCount
-      failureCount
-      createdAt
-    }
-  }
-`

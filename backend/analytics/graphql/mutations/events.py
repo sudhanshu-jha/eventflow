@@ -123,4 +123,5 @@ class TrackBatchEvents(graphene.Mutation):
             dbsession.add(event)
             tracked_count += 1
 
+        dbsession.flush()
         return TrackBatchEvents(success=True, tracked_count=tracked_count)
