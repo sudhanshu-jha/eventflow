@@ -8,7 +8,6 @@ from pyramid.response import Response
 from pyramid.httpexceptions import HTTPOk, HTTPBadRequest, HTTPUnauthorized
 
 from .graphql import schema
-from .services.auth import AuthService
 from .models.user import User
 from .models.event import Event
 
@@ -101,8 +100,7 @@ def graphql_view(request):
         auth_header = request.headers.get('Authorization', '')
         if auth_header.startswith('Bearer '):
             try:
-                auth_service = AuthService(request.registry.settings)
-                context['user'] = auth_service.get_user_from_request(request)
+                context['user'] = request.auth_service.get_user_from_request(request)
                 if span and context['user']:
                     span.set_attribute("user.id", str(context['user'].id))
                     span.set_attribute("user.email", context['user'].email)

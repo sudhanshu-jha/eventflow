@@ -59,6 +59,9 @@ def includeme(config):
         reify=True
     )
 
+    from .services.auth import get_auth_service
+    config.add_request_method(get_auth_service, 'auth_service', reify=True)
+
 
 def init_opentelemetry(engine=None):
     """Initialize OpenTelemetry for the application."""

@@ -1,6 +1,5 @@
 import secrets
-from datetime import datetime, timedelta
-from functools import wraps
+from datetime import datetime, timedelta, timezone
 
 import bcrypt
 import jwt
@@ -29,6 +28,7 @@ class AuthService:
         self.algorithm = algorithm
 
         self.expiration = int(settings.get('jwt.expiration', 3600))
+        self.refresh_expiration = int(settings.get('jwt.refresh_expiration', 604800))  # 7 days
 
     def hash_password(self, password: str) -> str:
         """Hash a password using bcrypt."""
@@ -55,7 +55,7 @@ class AuthService:
 
     def create_token(self, user_id: str, email: str) -> dict:
         """Create JWT access and refresh tokens."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         # Access token (shorter lived)
         access_payload = {
@@ -72,7 +72,7 @@ class AuthService:
             'sub': str(user_id),
             'type': 'refresh',
             'iat': now,
-            'exp': now + timedelta(days=7),
+            'exp': now + timedelta(seconds=self.refresh_expiration),
         }
         refresh_token = jwt.encode(refresh_payload, self.secret, algorithm=self.algorithm)
 
@@ -117,6 +117,21 @@ class AuthService:
 
         return user
 
+    def update_profile(self, user, name: str) -> None:
+        """Update user profile fields. Raises ValueError on invalid input."""
+        if not name.strip():
+            raise ValueError('Name cannot be empty')
+        user.name = name
+
+    def change_password(self, user, current_password: str, new_password: str) -> None:
+        """Verify current password and set a new one. Raises ValueError on failure."""
+        if not self.verify_password(current_password, user.password_hash):
+            raise ValueError('Current password is incorrect')
+        pw_error = self.validate_password_strength(new_password)
+        if pw_error:
+            raise ValueError(pw_error)
+        user.password_hash = self.hash_password(new_password)
+
     def refresh_access_token(self, refresh_token: str, dbsession) -> dict:
         """Generate a new access token using a refresh token."""
         payload = self.decode_token(refresh_token)
@@ -131,17 +146,6 @@ class AuthService:
             raise HTTPUnauthorized(json_body={'error': 'User not found or inactive'})
 
         return self.create_token(str(user.id), user.email)
-
-
-def require_auth(view_callable):
-    """Decorator to require authentication for a view."""
-    @wraps(view_callable)
-    def wrapper(request):
-        settings = request.registry.settings
-        auth_service = AuthService(settings)
-        request.current_user = auth_service.get_user_from_request(request)
-        return view_callable(request)
-    return wrapper
 
 
 class RateLimiter:

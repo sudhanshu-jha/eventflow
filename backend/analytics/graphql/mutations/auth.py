@@ -30,6 +30,18 @@ def _get_redis():
     return _redis_client
 
 
+def _user_type(user):
+    from ..queries import UserType
+    return UserType(
+        id=str(user.id),
+        email=user.email,
+        name=user.name,
+        api_key=user.api_key,
+        created_at=user.created_at,
+        is_active=user.is_active,
+    )
+
+
 def _check_rate_limit(key: str) -> bool:
     """Returns True if request is allowed. Degrades gracefully if Redis unavailable."""
     try:
@@ -51,8 +63,6 @@ class Register(graphene.Mutation):
     error = graphene.String()
 
     def mutate(self, info, email, password, name=None):
-        from ..queries import UserType
-
         dbsession = info.context.get('dbsession')
         settings = info.context.get('settings')
         request = info.context.get('request')
@@ -85,14 +95,7 @@ class Register(graphene.Mutation):
 
         return Register(
             success=True,
-            user=UserType(
-                id=str(user.id),
-                email=user.email,
-                name=user.name,
-                api_key=user.api_key,
-                created_at=user.created_at,
-                is_active=user.is_active,
-            ),
+            user=_user_type(user),
             tokens=AuthPayload(
                 access_token=tokens['access_token'],
                 refresh_token=tokens['refresh_token'],
@@ -113,8 +116,6 @@ class Login(graphene.Mutation):
     error = graphene.String()
 
     def mutate(self, info, email, password):
-        from ..queries import UserType
-
         dbsession = info.context.get('dbsession')
         settings = info.context.get('settings')
         request = info.context.get('request')
@@ -125,7 +126,7 @@ class Login(graphene.Mutation):
                 return Login(success=False, error='Too many login attempts, please try again later')
 
         user = dbsession.query(User).filter(User.email == email).first()
-        if not user:
+        if not user or not user.is_active:
             return Login(success=False, error='Invalid email or password')
 
         auth_service = AuthService(settings)
@@ -133,21 +134,11 @@ class Login(graphene.Mutation):
         if not auth_service.verify_password(password, user.password_hash):
             return Login(success=False, error='Invalid email or password')
 
-        if not user.is_active:
-            return Login(success=False, error='Account is deactivated')
-
         tokens = auth_service.create_token(str(user.id), user.email)
 
         return Login(
             success=True,
-            user=UserType(
-                id=str(user.id),
-                email=user.email,
-                name=user.name,
-                api_key=user.api_key,
-                created_at=user.created_at,
-                is_active=user.is_active,
-            ),
+            user=_user_type(user),
             tokens=AuthPayload(
                 access_token=tokens['access_token'],
                 refresh_token=tokens['refresh_token'],
@@ -198,31 +189,22 @@ class UpdateProfile(graphene.Mutation):
     error = graphene.String()
 
     def mutate(self, info, name=None):
-        from ..queries import UserType
-
         user = info.context.get('user')
         if not user:
             return UpdateProfile(success=False, error='Authentication required')
 
         if name is not None:
-            if not name.strip():
-                return UpdateProfile(success=False, error='Name cannot be empty')
-            user.name = name
+            settings = info.context.get('settings')
+            auth_service = AuthService(settings)
+            try:
+                auth_service.update_profile(user, name)
+            except ValueError as e:
+                return UpdateProfile(success=False, error=str(e))
 
         dbsession = info.context.get('dbsession')
         dbsession.flush()
 
-        return UpdateProfile(
-            success=True,
-            user=UserType(
-                id=str(user.id),
-                email=user.email,
-                name=user.name,
-                api_key=user.api_key,
-                created_at=user.created_at,
-                is_active=user.is_active,
-            )
-        )
+        return UpdateProfile(success=True, user=_user_type(user))
 
 
 class ChangePassword(graphene.Mutation):
@@ -241,14 +223,11 @@ class ChangePassword(graphene.Mutation):
         settings = info.context.get('settings')
         auth_service = AuthService(settings)
 
-        if not auth_service.verify_password(current_password, user.password_hash):
-            return ChangePassword(success=False, error='Current password is incorrect')
+        try:
+            auth_service.change_password(user, current_password, new_password)
+        except ValueError as e:
+            return ChangePassword(success=False, error=str(e))
 
-        pw_error = auth_service.validate_password_strength(new_password)
-        if pw_error:
-            return ChangePassword(success=False, error=pw_error)
-
-        user.password_hash = auth_service.hash_password(new_password)
         dbsession = info.context.get('dbsession')
         dbsession.flush()
 
